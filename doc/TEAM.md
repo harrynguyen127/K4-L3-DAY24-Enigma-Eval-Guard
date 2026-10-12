@@ -66,4 +66,4 @@ Ngày 12/10/2026, Phase A/B đã có source, artifacts và reports. Validator of
 
 ## Cập nhật sau khi nộp
 
-Chưa có bằng chứng nộp link hoặc phiên bản nộp cuối trong repo; chưa ghi nhận cập nhật sau khi nộp. Khi nộp, Tuấn lưu commit SHA và thời điểm gửi. Nếu sửa sau deadline, ghi commit, thời điểm, lý do và quyết định của coach về việc áp dụng bản cập nhật theo [RULES.md](RULES.md).
+Không có cập nhật sau khi nộp.
