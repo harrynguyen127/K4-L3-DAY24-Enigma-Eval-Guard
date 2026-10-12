@@ -8,7 +8,7 @@ Trưởng nhóm/người nộp: **Nguyễn Anh Tuấn — 2A202602700**.
 
 Ngày cập nhật báo cáo: **12/10/2026**, Asia/Ho_Chi_Minh (UTC+07:00). Ngày lab và deadline cụ thể chưa có thông báo lớp trong repo; áp dụng **23:59 ngày diễn ra lab**, trừ khi coach thông báo điều chỉnh theo [SUBMISSION.md](SUBMISSION.md).
 
-Commit dùng để chấm: **chưa chốt bản nộp cuối**. Commit bằng chứng Phase A hiện có là `0ee7c1a74cd449f224f33fe74b6aa8a3398990b4`, thời điểm `2026-10-12T11:47:55+07:00`, thông điệp `feat: complete Phase A evaluation and handoff evidence`. Báo cáo này chưa nằm trong commit đó; Tuấn cập nhật SHA bản cuối khi nộp.
+Commit dùng để chấm đã chốt: **[`edb68bb418d50687e7c66220288dd8a55365b234`](https://github.com/harrynguyen127/K4-L3-DAY24-Enigma-Eval-Guard/commit/edb68bb418d50687e7c66220288dd8a55365b234)**, thời điểm `2026-10-12T18:08:52+07:00`, thông điệp `feat: integrate Phase C live evidence and CI blueprint`. Bản này chứa code, artifacts và ba reports A/B/C đã kiểm tra: **145 tests offline đạt, 3 integration tests deselected, checker 0 failed checks**. Commit xác nhận phiên bản chỉ cập nhật TEAM; code, artifacts và các reports giữ nguyên theo SHA đã chốt.
 
 Thông tin thành viên và nhiệm vụ lấy từ `PHAN_CONG_ENIGMA_TEAM.md` (bản cục bộ trong `temp/`), đối chiếu với [đề bài](ASSIGNMENT.md), [bàn giao Phase A](PHASE_A_HANDOFF.md), mã nguồn, artifacts và lịch sử Git. MSSV được giữ đúng như tài liệu phân công. Trạng thái dưới đây phản ánh bằng chứng trong repo tại lần cập nhật này.
 
@@ -21,7 +21,7 @@ Thông tin thành viên và nhiệm vụ lấy từ `PHAN_CONG_ENIGMA_TEAM.md` (
 
 Người tích hợp/chạy batch/nộp link:
 
-- **Tuấn:** phụ trách batch A/B và kiểm tra/nộp bản cuối; đã tiếp tục chạy batch C và hoàn thiện blueprint theo yêu cầu. Chưa có bằng chứng gửi link nộp tới coach.
+- **Tuấn:** phụ trách batch A/B và kiểm tra/nộp bản cuối; đã tiếp tục chạy batch C, hoàn thiện blueprint và chốt phiên bản theo SHA ở trên.
 - **Hưng:** triển khai Tasks 9a–12, nhận kết quả A/B, chạy batch riêng và viết blueprint trong commit `3692013`. Tuấn nhận commit này khi fetch trong lúc tích hợp; giữ artifact riêng và cập nhật kê khai đóng góp của Hưng bên dưới.
 
 ## Môi trường và chuẩn bị trước lớp
@@ -42,7 +42,7 @@ Người tích hợp/chạy batch/nộp link:
 ### NguyenAnhTuan-2A202602700
 
 - **Phần được giao và phần thực tế đã làm:** phụ trách pipeline RAG, Phase A/B và kiểm tra/nộp bản cuối. Đã đưa m1–m5 vào repo, hoàn thiện Tasks 1–4 và adapter m4, lưu answers/RAGAS và viết báo cáo lỗi. Đã hoàn thiện `pairwise_judge`, `swap_and_average`, `cohen_kappa`, `bias_report` trong [phase_b_judge.py](../src/phase_b_judge.py), chạy batch B, viết báo cáo bias và bàn giao Hưng. Bổ sung client dùng chung, cache responses hợp lệ và giới hạn 20 request cho batch B; sửa lỗi encoding tiếng Việt trong báo cáo A bằng dữ liệu đã lưu. Theo yêu cầu tiếp tục, đã tích hợp code C của Hưng, sửa setup Presidio/PII scope, làm rõ prompt sau false positives, chạy live C và hoàn thiện blueprint A/B/C; bổ sung counters và reuse output có kiểm tra để tránh gọi lại phần không đổi.
-- **Bằng chứng:** commit A `0ee7c1a74cd449f224f33fe74b6aa8a3398990b4`; [bàn giao A](PHASE_A_HANDOFF.md), [bàn giao B](PHASE_B_HANDOFF.md); [answers](../artifacts/answers_50q.json), [RAGAS](../artifacts/ragas_50q.json), [judge_results.json](../artifacts/judge_results.json); [failure_clusters.md](reports/failure_clusters.md), [bias_report.md](reports/bias_report.md). Commit triển khai B được ghi trong lịch sử Git của repo; SHA dùng để chấm sẽ được chốt khi nộp bản cuối.
+- **Bằng chứng:** commit A `0ee7c1a74cd449f224f33fe74b6aa8a3398990b4`; [bàn giao A](PHASE_A_HANDOFF.md), [bàn giao B](PHASE_B_HANDOFF.md); [answers](../artifacts/answers_50q.json), [RAGAS](../artifacts/ragas_50q.json), [judge_results.json](../artifacts/judge_results.json); [failure_clusters.md](reports/failure_clusters.md), [bias_report.md](reports/bias_report.md). Commit triển khai B được ghi trong lịch sử Git của repo; SHA dùng để chấm đã chốt là `edb68bb418d50687e7c66220288dd8a55365b234`.
 - **Cách kiểm tra:** bộ **128 tests offline** A/B/m4/budget/support/contracts đạt, dùng mocks và chặn mạng/API. Lệnh: `python -m pytest tests/test_phase_a.py tests/test_m4_eval.py tests/test_phase_b.py tests/test_judge_budget.py tests/test_support.py tests/test_report_contracts.py -q --tb=short`. Batch B chạy một lần bằng `python scripts/run_experiments.py --phase b --live`: đủ 20 requests, 5 cặp/10 lượt và 10 nhãn binary. Validator schema/nguồn/phép tính/SHA-256 cho A/B đạt. Không chạy lại API A khi sửa văn bản báo cáo.
 - **Điều đã học — tổng hợp từ phần triển khai/bàn giao:** bốn metrics RAGAS đo các khía cạnh khác nhau; faithfulness cao chưa đảm bảo answer đúng trọng tâm hoặc retrieval đủ ý. Matrix worst-metric đếm mọi câu nên chọn nhóm yếu bằng mean, không dùng tổng 20/20/10. Phase B phân biệt A/B/tie với nhãn 0/1, quy cả winner và scores lượt swap về A/B gốc, và giữ nhãn người ngoài prompt. κ=1 trên 10 examples chưa chứng minh pairwise đáng tin: IDs 5/21 vẫn có reasoning sai hoặc bỏ sót ý quan trọng.
 - **Giới hạn/cách xử lý:** answers A đều là fallback; nếu đổi answers phải cập nhật các báo cáo/hashes liên quan. Hai cặp đổi lựa chọn sau swap; winner dài hơn thắng 3/3 decisive cases nhưng chất lượng và độ dài bị trộn trên bộ mẫu nhỏ. Báo cáo bias phân tích nội dung, đề xuất đối chứng và cách kiểm tra thêm cho lần thực nghiệm được phê duyệt sau. Giữ nguyên prompt/dataset sau batch; không gọi thêm API để nâng điểm. Báo cáo A đã sửa UTF-8, giữ nguyên số đo.
@@ -65,7 +65,7 @@ Ngày 12/10/2026, Phase A/B/C đã có source, artifacts và ba reports. Validat
 - Tuấn đã hoàn thiện Phase B, tạo `judge_results.json`, điền `bias_report.md` và bàn giao κ/bias cùng model IDs cho Hưng qua [PHASE_B_HANDOFF.md](PHASE_B_HANDOFF.md).
 - Hưng đã triển khai/chạy C và viết blueprint trong `3692013`; Tuấn giữ evidence Hưng, tiếp tục batch riêng với prompt hiện tại, lưu `guard_results.json` cùng hai bản thử trước và tổng hợp blueprint A/B/C. Kết quả chính đạt ngưỡng lab/bonus; còn attack #16 và mục tiêu latency 500 ms được ghi rõ, không sửa số đo cho đạt.
 - Bốn JSON bắt buộc và ba báo cáo đã có; CI/CD/monitoring trong blueprint là đề xuất, chưa triển khai workflow hoặc deployment. Không dùng input_guard_ms để tuyên bố full guard latency.
-- Tuấn kiểm tra secrets, chốt commit nộp và gửi một link repo chung theo thông báo lớp. Không commit `.env`, API keys, virtualenv hoặc model cache.
+- Phiên bản code/artifacts/reports đã chốt tại `edb68bb418d50687e7c66220288dd8a55365b234`; secrets đã được kiểm tra trước khi commit/push. `.env`, API keys, virtualenv và model cache không nằm trong bản nộp.
 
 ## Cập nhật sau khi nộp
 
