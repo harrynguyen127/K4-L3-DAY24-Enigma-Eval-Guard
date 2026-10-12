@@ -12,3 +12,4 @@ venv/
 # artifacts/*.json là bằng chứng bắt buộc của bài nộp.
 # Chỉ commit sau khi kiểm tra không có API key hoặc dữ liệu cá nhân thật.
 artifacts/.phase_a_cache/
+temp/
