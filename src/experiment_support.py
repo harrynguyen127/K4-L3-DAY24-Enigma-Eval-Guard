@@ -5,6 +5,9 @@ import hashlib
 import inspect
 import json
 import math
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -105,24 +108,95 @@ Trả JSON: {"label": 0 hoặc 1, "reasoning": "giải thích ngắn theo tiêu 
 """
 
 
-def judge_binary(question, answer, reference, *, client=None):
-    """Provided bridge to 0/1 calibration. Never accepts human_label/human_note."""
-    if client is None:
-        from openai import OpenAI
-        client = OpenAI()
-    response = client.chat.completions.create(
-        model=JUDGE_MODEL, temperature=0,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": BINARY_SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(
-                {"question": question, "answer": answer, "reference": reference},
-                ensure_ascii=False)},
+@dataclass
+class JudgeSession:
+    client: object
+    cache_dir: Path
+    max_requests: int
+    api_requests: int = 0
+    cache_hits: int = 0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
+
+
+_judge_session = ContextVar("judge_session", default=None)
+
+
+@contextmanager
+def judge_session(client, cache_dir, *, max_requests=20):
+    """One live batch owns a reused client, validated response cache and request cap."""
+    session = JudgeSession(client, Path(cache_dir), max_requests)
+    token = _judge_session.set(session)
+    try:
+        yield session
+    finally:
+        _judge_session.reset(token)
+
+
+def judge_json(system_prompt, payload, *, model=JUDGE_MODEL, client=None, validator=None):
+    """Call once without retries; cache only validated results inside a batch session."""
+    request = {
+        "model": model, "temperature": 0, "response_format": {"type": "json_object"},
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
         ],
-    )
-    result = json.loads(response.choices[0].message.content)
+    }
+    session = _judge_session.get()
+    use_session = session is not None and (client is None or client is session.client)
+    digest = hashlib.sha256(json.dumps(request, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+    cache_path = session.cache_dir / f"{digest}.json" if use_session else None
+
+    def validated(result):
+        if not isinstance(result, dict):
+            raise ValueError("Judge must return a JSON object.")
+        return validator(result) if validator is not None else result
+
+    if cache_path is not None and cache_path.is_file():
+        cached = read_json(cache_path)
+        if cached.get("request_sha256") != digest or cached.get("model") != model:
+            raise ValueError("Judge cache provenance mismatch.")
+        result = validated(cached["result"])
+        session.cache_hits += 1
+        return result
+    if use_session:
+        if session.api_requests >= session.max_requests:
+            raise ValueError("Phase B judge request budget exhausted; no additional API call made.")
+        session.api_requests += 1
+        client = session.client
+        print(f"Phase B judge request {session.api_requests}/{session.max_requests}")
+    elif client is None:
+        from openai import OpenAI
+        client = OpenAI(max_retries=0, timeout=60)
+    response = client.chat.completions.create(**request)
+    content = response.choices[0].message.content
+    if not isinstance(content, str) or not content.strip():
+        raise ValueError("Judge returned empty content.")
+    try:
+        result = validated(json.loads(content))
+    except json.JSONDecodeError as error:
+        raise ValueError("Judge returned invalid JSON; no automatic replay.") from error
+    if use_session:
+        usage = getattr(response, "usage", None)
+        for field in ("prompt_tokens", "completion_tokens"):
+            value = getattr(usage, field, 0)
+            if type(value) is int:
+                setattr(session, field, getattr(session, field) + value)
+        write_json(cache_path, {"request_sha256": digest, "model": model,
+                               "created_at": datetime.now(timezone.utc).isoformat(), "result": result})
+    return result
+
+
+def _validate_binary(result):
     if type(result.get("label")) is not int or result["label"] not in (0, 1):
         raise ValueError("Binary judge label must be integer 0 or 1.")
     if not isinstance(result.get("reasoning"), str) or not result["reasoning"].strip():
         raise ValueError("Binary judge must explain its decision.")
     return {"label": result["label"], "reasoning": result["reasoning"]}
+
+
+def judge_binary(question, answer, reference, *, client=None):
+    """Provided bridge to 0/1 calibration. Never accepts human_label/human_note."""
+    return judge_json(BINARY_SYSTEM_PROMPT,
+                      {"question": question, "answer": answer, "reference": reference},
+                      client=client, validator=_validate_binary)

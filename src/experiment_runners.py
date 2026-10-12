@@ -7,7 +7,7 @@ from pathlib import Path
 
 from config import (ADVERSARIAL_SET_PATH, ANSWERS_PATH, ARTIFACTS_DIR, CLEAN_SET_PATH,
                     HUMAN_LABELS_PATH, OUTPUT_SET_PATH, PAIR_QUESTION_IDS, TEST_SET_PATH)
-from src.experiment_support import (JUDGE_MODEL, generation_models, guard_models, judge_binary,
+from src.experiment_support import (JUDGE_MODEL, generation_models, guard_models, judge_binary, judge_session,
                                     metadata, model_ids, read_json, write_json)
 from src.report_contracts import PAIR_SOURCES, validate_answers, validate_phase_a, validate_phase_b, validate_phase_c
 
@@ -44,23 +44,23 @@ def run_phase_b():
     by_answer = {row["id"]: row for row in answers}
     by_question = {row["id"]: row for row in questions}
     by_human = {row["question_id"]: row for row in humans}
-    results = []
-    for qid in PAIR_QUESTION_IDS:
-        q = by_question[qid]
-        result = phase.swap_and_average(
-            q["question"], by_answer[qid]["answer"], by_human[qid]["model_answer"],
-            reference=q["ground_truth"])
-        results.append({"question_id": qid, **asdict(result)})
-    judgments = []
+    results, judgments = [], []
     from openai import OpenAI
-    binary_client = OpenAI()
-    for human in humans:
-        # Exact supplied answer. Never pass human_label or human_note into judge_binary.
-        result = judge_binary(human["question"], human["model_answer"],
-                              by_question[human["question_id"]]["ground_truth"], client=binary_client)
-        judgments.append({"question_id": human["question_id"],
-                          "question": human["question"], "model_answer": human["model_answer"],
-                          **result})
+    binary_client = OpenAI(max_retries=0, timeout=60)
+    with judge_session(binary_client, Path(ARTIFACTS_DIR) / ".phase_b_cache", max_requests=20) as session:
+        for qid in PAIR_QUESTION_IDS:
+            q = by_question[qid]
+            result = phase.swap_and_average(
+                q["question"], by_answer[qid]["answer"], by_human[qid]["model_answer"],
+                reference=q["ground_truth"])
+            results.append({"question_id": qid, **asdict(result)})
+        for human in humans:
+            # Exact supplied answer. Never pass human_label or human_note into judge_binary.
+            result = judge_binary(human["question"], human["model_answer"],
+                                  by_question[human["question_id"]]["ground_truth"], client=binary_client)
+            judgments.append({"question_id": human["question_id"],
+                              "question": human["question"], "model_answer": human["model_answer"],
+                              **result})
     judge_labels = [row["label"] for row in judgments]
     human_labels = [row["human_label"] for row in humans]
     report = {
@@ -75,6 +75,9 @@ def run_phase_b():
         "bias_report": phase.bias_report([
             phase.JudgeResult(**{k: v for k, v in row.items() if k != "question_id"})
             for row in results]),
+        "execution": {"api_requests": session.api_requests, "cache_hits": session.cache_hits,
+                      "request_budget": session.max_requests, "client_max_retries": 0,
+                      "prompt_tokens": session.prompt_tokens, "completion_tokens": session.completion_tokens},
     }
     validate_phase_b(report, answers, questions, humans)
     write_json(Path(ARTIFACTS_DIR) / "judge_results.json", report)
