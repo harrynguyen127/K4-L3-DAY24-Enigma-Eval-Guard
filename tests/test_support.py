@@ -187,13 +187,43 @@ def test_schema_documents_are_valid():
         Draft202012Validator.check_schema(read_json(path))
 
 
+def test_output_reuse_fingerprint_tracks_output_policy_and_model(tmp_path,monkeypatch):
+    import config
+    import yaml
+    from src.experiment_runners import _output_policy_sha256
+    monkeypatch.setattr(config,"GUARDRAILS_CONFIG_DIR",str(tmp_path))
+    policy={"models":[{"type":"main","model":"cheap-model"}],
+            "instructions":[{"type":"general","content":"HR policy"}],
+            "colang_version":"1.0", "rails":{"input":{"flows":["self check input"]},
+            "output":{"flows":["self check output"]}},
+            "prompts":[{"task":"self_check_input","content":"input-v1"},
+                       {"task":"self_check_output","content":"output-v1"}]}
+    def save():
+        (tmp_path/"config.yml").write_text(yaml.safe_dump(policy),encoding="utf-8")
+    (tmp_path/"rails.co").write_text('define bot refuse to respond\n  "Refusal"\n',encoding="utf-8")
+    save()
+    original=_output_policy_sha256()
+    policy["prompts"][0]["content"]="input-v2"
+    save()
+    assert _output_policy_sha256()==original
+    for change in (lambda:policy["models"][0].update(model="other-model"),
+                   lambda:policy["prompts"][1].update(content="output-v2"),
+                   lambda:policy["instructions"][0].update(content="new policy")):
+        before=_output_policy_sha256()
+        change()
+        save()
+        assert _output_policy_sha256()!=before
+
+
 def test_phase_c_runner_executes_one_input_batch_and_four_outputs(tmp_path,monkeypatch):
     from src import experiment_runners as runners,phase_c_guard as phase
     monkeypatch.setattr(runners,"ARTIFACTS_DIR",tmp_path)
+    monkeypatch.setattr(runners,"_output_policy_sha256",lambda:"output-policy-hash")
     monkeypatch.setattr(phase,"setup_presidio",lambda:(object(),object()))
     models=iter(["guard-input","guard-output","guard-latency"])
     monkeypatch.setattr(phase,"setup_nemo_rails",lambda:SimpleNamespace(config=SimpleNamespace(
-        models=[SimpleNamespace(type="main",model=next(models))])))
+        models=[SimpleNamespace(type="main",model=next(models))]),
+        _guard_execution=dict(checks=0,llm_calls=0,prompt_tokens=0,completion_tokens=0)))
     def batch(inputs,**kwargs):
         return [{**item,"actual":item["expected"],"passed":True,
                  "blocked_by":"nemo_input" if item["expected"]=="blocked" else None} for item in inputs]
@@ -218,6 +248,22 @@ def test_phase_c_runner_executes_one_input_batch_and_four_outputs(tmp_path,monke
         "generation":[],"evaluator":[],"judge":[],
         "guard":["guard-input","guard-latency","guard-output"]}
     assert (tmp_path/"guard_results.json").is_file()
+    # An input-only change can reuse verified outputs, but timing always runs again.
+    saved_report=tmp_path/"guard_results.json"
+    models=iter(["guard-input","guard-latency"])
+    checked.reset_mock()
+    checked.side_effect=AssertionError("Output must not call the API when evidence is reusable")
+    report=runners.run_phase_c(reuse_output_report=saved_report)
+    checked.assert_not_awaited()
+    assert batched.call_count==2 and latency.call_count==2
+    assert report["execution"]["output_suite"]["llm_calls"]==0
+    assert report["execution"]["reused_output_evidence"]["report"]=="guard_results.json"
+    assert report["metadata"]["models"]["guard"]==["guard-input","guard-latency","guard-output"]
+    # Reject stale output policy before starting any new input/latency work.
+    monkeypatch.setattr(runners,"_output_policy_sha256",lambda:"changed-output-policy")
+    with pytest.raises(ValueError,match="Output policy/model changed"):
+        runners.run_phase_c(reuse_output_report=saved_report)
+    assert batched.call_count==2 and latency.call_count==2
 
 
 def test_team_requires_every_individual_entry(tmp_path):

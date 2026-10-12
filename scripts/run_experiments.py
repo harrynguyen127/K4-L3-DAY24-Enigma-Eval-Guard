@@ -17,7 +17,11 @@ def main(argv=None):
     parser.add_argument("--phase", choices=("a", "b", "c", "all"), required=True)
     parser.add_argument("--live", action="store_true", help="Acknowledge API use and network dependency")
     parser.add_argument("--latency-samples", type=int, default=20)
+    parser.add_argument("--reuse-output-report", type=Path,
+                        help="Phase C only: reuse verified passing output cases with identical output policy/model")
     args = parser.parse_args(argv)
+    if args.reuse_output_report is not None and args.phase != "c":
+        parser.error("--reuse-output-report is only supported for phase c.")
     if not args.live:
         parser.error("Real experiments require --live. Use python -m pytest for offline unit tests.")
     if not OPENAI_API_KEY:
@@ -27,7 +31,8 @@ def main(argv=None):
     selected = list(modules) if args.phase == "all" else [args.phase]
     for name in selected:
         require_completed(modules[name])
-    runners = {"a": run_phase_a, "b": run_phase_b, "c": lambda: run_phase_c(args.latency_samples)}
+    runners = {"a": run_phase_a, "b": run_phase_b,
+               "c": lambda: run_phase_c(args.latency_samples, reuse_output_report=args.reuse_output_report)}
     for name in selected:
         runners[name]()
         print(f"Phase {name.upper()} saved to artifacts/.")

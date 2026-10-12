@@ -1,6 +1,7 @@
 """Student guards use injected fake engines/rails; no spaCy download or live API."""
 import asyncio
 import re
+import sys
 from types import SimpleNamespace
 from unittest.mock import AsyncMock,Mock
 
@@ -48,6 +49,60 @@ def test_pii_clean(pii_engines):
     result=phase.pii_scan(text,*pii_engines)
     assert result=={"has_pii":False,"entities":[],"anonymized":text}
     pii_engines[0].analyze.assert_called_once()
+
+
+def test_pii_scope_ignores_english_ner_guesses():
+    person = SimpleNamespace(entity_type="PERSON", start=0, end=6, score=.9)
+    identifier = SimpleNamespace(entity_type="VN_CCCD", start=7, end=19, score=.9)
+    analyzer = SimpleNamespace(analyze=Mock(return_value=[person, identifier]))
+    anonymizer = SimpleNamespace(anonymize=Mock(return_value=SimpleNamespace(text="Policy <VN_CCCD>")))
+    result = phase.pii_scan("Policy 034095001234", analyzer, anonymizer)
+    assert [row["type"] for row in result["entities"]] == ["VN_CCCD"]
+    assert anonymizer.anonymize.call_args.kwargs["analyzer_results"] == [identifier]
+    analyzer.analyze.return_value = [person]
+    assert phase.pii_scan("Policy", analyzer, anonymizer)["has_pii"] is False
+
+
+def test_presidio_factory_registers_both_vietnamese_recognizers(monkeypatch):
+    registry = Mock()
+    analyzer_factory, anonymizer_factory = Mock(), Mock()
+    monkeypatch.setitem(sys.modules, "presidio_analyzer", SimpleNamespace(
+        AnalyzerEngine=analyzer_factory, RecognizerRegistry=Mock(return_value=registry),
+        Pattern=Mock(), PatternRecognizer=lambda **kwargs: SimpleNamespace(**kwargs)))
+    monkeypatch.setitem(sys.modules, "presidio_anonymizer", SimpleNamespace(
+        AnonymizerEngine=anonymizer_factory))
+    phase.setup_presidio()
+    registry.load_predefined_recognizers.assert_called_once()
+    assert {call.args[0].supported_entity for call in registry.add_recognizer.call_args_list} == {
+        "VN_CCCD", "VN_PHONE"}
+    analyzer_factory.assert_called_once_with(registry=registry)
+
+
+def test_guard_execution_records_counters_without_prompts():
+    counters = dict(checks=0, llm_calls=0, prompt_tokens=0, completion_tokens=0)
+    rails = SimpleNamespace(_guard_execution=counters)
+    result = SimpleNamespace(log=SimpleNamespace(stats=SimpleNamespace(
+        llm_calls_count=1, llm_calls_total_prompt_tokens=120,
+        llm_calls_total_completion_tokens=1)))
+    phase._record_guard_execution(rails, result)
+    assert counters == dict(checks=1, llm_calls=1, prompt_tokens=120, completion_tokens=1)
+
+
+def test_nemo_provider_override_preserves_actual_model_and_no_retries(monkeypatch):
+    config = SimpleNamespace(models=[SimpleNamespace(type="main", model="gpt-4o-mini")])
+    rails = SimpleNamespace(config=config)
+    llm_factory, rails_factory = Mock(), Mock(return_value=rails)
+    monkeypatch.setitem(sys.modules, "nemoguardrails", SimpleNamespace(
+        RailsConfig=SimpleNamespace(from_path=lambda path:config), LLMRails=rails_factory))
+    monkeypatch.setitem(sys.modules, "langchain_openai", SimpleNamespace(ChatOpenAI=llm_factory))
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://api.deepseek.com")
+    monkeypatch.setenv("OPENAI_API_KEY", "unit-test-key")
+    result = phase.setup_nemo_rails()
+    assert result.config.models[0].model == "deepseek-chat"
+    params = llm_factory.call_args.kwargs
+    assert params["model"] == "deepseek-chat"
+    assert params["max_retries"] == 0 and params["cache"] is False
+    rails_factory.assert_called_once_with(config, llm=llm_factory.return_value)
 
 
 @pytest.mark.parametrize("blocked",[True,False])

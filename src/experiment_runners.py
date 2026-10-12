@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
+import os
 from dataclasses import asdict
 from pathlib import Path
 
@@ -89,12 +92,44 @@ def _summarize_input(rows):
     return {"total": len(rows), "passed": passed, "pass_rate": passed / len(rows), "results": rows}
 
 
-def run_phase_c(n_samples=20):
+def _output_policy_sha256():
+    """Fingerprint only output-relevant settings so input-only fixes can reuse evidence."""
+    import yaml
+    from config import GUARDRAILS_CONFIG_DIR
+    directory = Path(GUARDRAILS_CONFIG_DIR)
+    config = yaml.safe_load((directory / "config.yml").read_text(encoding="utf-8"))
+    policy = {key: config.get(key) for key in ("models", "instructions", "colang_version")}
+    policy["output_rails"] = config["rails"]["output"]
+    policy["prompts"] = [p for p in config["prompts"] if p["task"] == "self_check_output"]
+    policy["colang"] = (directory / "rails.co").read_text(encoding="utf-8")
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("DEEPSEEK_BASE_URL")
+    if base_url:
+        # A provider/endpoint change invalidates reuse. Never put the API key in
+        # fingerprints or reports; only non-secret routing/model settings.
+        policy["provider_override"] = {
+            "base_url": base_url,
+            "model": "deepseek-chat" if "deepseek" in base_url else None,
+        }
+    return hashlib.sha256(json.dumps(policy, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
+
+
+def run_phase_c(n_samples=20, *, reuse_output_report=None):
     from src import phase_c_guard as phase
     if n_samples < 20:
         raise ValueError("Submission latency needs at least 20 timed samples.")
     attacks, clean, outputs = [read_json(path) for path in
                               (ADVERSARIAL_SET_PATH, CLEAN_SET_PATH, OUTPUT_SET_PATH)]
+    output_policy_hash = _output_policy_sha256()
+    reused = None
+    if reuse_output_report is not None:
+        from src.report_contracts import validate_metadata
+        reused = read_json(reuse_output_report)
+        validate_phase_c(reused, attacks, clean, outputs, require_quality=False)
+        validate_metadata(reused, [ADVERSARIAL_SET_PATH, CLEAN_SET_PATH, OUTPUT_SET_PATH])
+        if reused.get("execution", {}).get("output_policy_sha256") != output_policy_hash:
+            raise ValueError("Output policy/model changed; saved output evidence cannot be reused.")
+        if not all(row["passed"] for row in reused["output_results"]):
+            raise ValueError("Only passing output evidence may be reused.")
     analyzer, anonymizer = phase.setup_presidio()
     # One combined input run, not four replays of the attack suite.
     # Each stage owns its NeMo instance, avoiding HTTP clients reused across closed loops.
@@ -102,6 +137,7 @@ def run_phase_c(n_samples=20):
     used_guard_models = guard_models(input_rails)
     input_rows = phase.run_adversarial_suite(
         attacks + clean, rails=input_rails, analyzer=analyzer, anonymizer=anonymizer)
+    print("Phase C input checks finished.", flush=True)
     attack_ids = {row["id"] for row in attacks}
     clean_ids = {row["id"] for row in clean}
     attack_rows = [row for row in input_rows if row["id"] in attack_ids]
@@ -117,8 +153,14 @@ def run_phase_c(n_samples=20):
             result = await phase.check_output_rail(case["question"], case["answer"], rails=rails)
             rows.append({**case, **result,
                          "passed": result["safe"] == (case["expected"] == "safe")})
-        return rows
-    output_rows = asyncio.run(check_outputs())
+        return rows, dict(rails._guard_execution)
+    if reused is None:
+        output_rows, output_execution = asyncio.run(check_outputs())
+    else:
+        output_rows = reused["output_results"]
+        output_execution = dict(checks=0, llm_calls=0, prompt_tokens=0, completion_tokens=0)
+        used_guard_models.extend(reused["metadata"]["models"]["guard"])
+    print("Phase C output checks finished; measuring 2 warm-ups and timed samples.", flush=True)
     latency_rails = phase.setup_nemo_rails()
     used_guard_models.extend(guard_models(latency_rails))
     latency = phase.measure_p95_latency(
@@ -132,7 +174,21 @@ def run_phase_c(n_samples=20):
             "generation": [], "evaluator": [], "judge": [], "guard": used_guard_models}),
         "adversarial": _summarize_input(attack_rows), "clean": clean_summary,
         "output_results": output_rows, "latency": latency,
+        "execution": {
+            "input_suite": dict(input_rails._guard_execution),
+            "output_suite": output_execution,
+            "latency_including_warmup": dict(latency_rails._guard_execution),
+            "client_max_retries": 0, "llm_cache_enabled": False,
+            "output_policy_sha256": output_policy_hash,
+        },
     }
+    if reused is not None:
+        report["execution"]["reused_output_evidence"] = {
+            "report": Path(reuse_output_report).name,
+            "created_at": reused["metadata"]["created_at"],
+            "output_policy_sha256": output_policy_hash,
+            "original_execution": reused["execution"]["output_suite"],
+        }
     # Save genuine failing experiments too; checker enforces 15/20 and clean controls.
     validate_phase_c(report, attacks, clean, outputs, require_quality=False)
     write_json(Path(ARTIFACTS_DIR) / "guard_results.json", report)

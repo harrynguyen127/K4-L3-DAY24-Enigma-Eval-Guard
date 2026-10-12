@@ -12,6 +12,10 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config import ADVERSARIAL_SET_PATH, GUARDRAILS_CONFIG_DIR, LATENCY_BUDGET_P95_MS, PRESIDIO_LANGUAGE
 
+# This lab protects identifiers, not generic English NER guesses on Vietnamese
+# policy text. Requests for employee records are handled by the NeMo policy rail.
+PII_ENTITY_TYPES = frozenset({"VN_CCCD", "VN_PHONE", "EMAIL_ADDRESS", "PHONE_NUMBER"})
+
 
 # ─── Task 9a: Presidio PII Detection ─────────────────────────────────────────
 
@@ -38,7 +42,6 @@ def setup_presidio():
         supported_entity="VN_PHONE",
         patterns=[Pattern("VN mobile", r"\b0[3-9]\d{8}\b", 0.9)],
     )
-
     registry = RecognizerRegistry()
     registry.load_predefined_recognizers()
     registry.add_recognizer(cccd_recognizer)
@@ -62,9 +65,8 @@ def pii_scan(text: str, analyzer=None, anonymizer=None) -> dict:
     if analyzer is None or anonymizer is None:
         analyzer, anonymizer = setup_presidio()
 
-    results = analyzer.analyze(text=text, language=PRESIDIO_LANGUAGE)
-    valid_pii_types = {"VN_CCCD", "VN_PHONE", "EMAIL_ADDRESS", "PHONE_NUMBER"}
-    results = [r for r in results if r.entity_type in valid_pii_types]
+    results = [result for result in analyzer.analyze(text=text, language=PRESIDIO_LANGUAGE)
+               if result.entity_type in PII_ENTITY_TYPES]
     if not results:
         return {"has_pii": False, "entities": [], "anonymized": text}
 
@@ -88,20 +90,37 @@ def setup_nemo_rails():
     """
     from nemoguardrails import RailsConfig, LLMRails
     config = RailsConfig.from_path(GUARDRAILS_CONFIG_DIR)
+    # Preserve Hung's optional provider override, including the actual model in
+    # config.models so guard metadata does not silently label DeepSeek as GPT.
     base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("DEEPSEEK_BASE_URL")
     api_key = os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
-    if base_url and api_key and ("deepseek" in base_url or "api.deepseek.com" in base_url):
+    if base_url and api_key and "deepseek" in base_url:
         from langchain_openai import ChatOpenAI
-        llm = ChatOpenAI(
-            model="deepseek-chat",
-            openai_api_base=base_url,
-            openai_api_key=api_key,
-            temperature=0,
-        )
+        for model in config.models:
+            if model.type == "main":
+                model.model = "deepseek-chat"
+        llm = ChatOpenAI(model="deepseek-chat", openai_api_base=base_url,
+                         openai_api_key=api_key, temperature=0,
+                         max_retries=0, request_timeout=60, cache=False)
         rails = LLMRails(config, llm=llm)
     else:
         rails = LLMRails(config)
+    rails._guard_execution = {"checks": 0, "llm_calls": 0,
+                              "prompt_tokens": 0, "completion_tokens": 0}
     return rails
+
+
+def _record_guard_execution(rails, result):
+    """Keep only NeMo counters, never raw prompts or personal identifiers."""
+    counters = getattr(rails, "_guard_execution", None)
+    if counters is None:
+        return
+    stats = getattr(getattr(result, "log", None), "stats", None)
+    counters["checks"] += 1
+    for target, source in (("llm_calls", "llm_calls_count"),
+                           ("prompt_tokens", "llm_calls_total_prompt_tokens"),
+                           ("completion_tokens", "llm_calls_total_completion_tokens")):
+        counters[target] += getattr(stats, source, 0) or 0
 
 
 async def check_input_rail(text: str, rails=None) -> dict:
@@ -121,6 +140,7 @@ async def check_input_rail(text: str, rails=None) -> dict:
         messages=[{"role": "user", "content": text}],
         options={"rails": ["input"], "log": {"activated_rails": True}},
     )
+    _record_guard_execution(rails, result)
     response = result.response[0]["content"] if getattr(result, "response", None) else ""
     # Đọc quyết định rail; không suy ra blocked từ từ khóa có thể nằm trong input sạch.
     activated = getattr(getattr(result, "log", None), "activated_rails", []) or []
@@ -157,6 +177,7 @@ async def check_output_rail(question: str, answer: str, rails=None) -> dict:
         ],
         options={"rails": ["output"], "log": {"activated_rails": True}},
     )
+    _record_guard_execution(rails, result)
     response = result.response[0]["content"] if getattr(result, "response", None) else ""
     activated = getattr(getattr(result, "log", None), "activated_rails", []) or []
     flagged = any(getattr(rail, "stop", False) for rail in activated)
