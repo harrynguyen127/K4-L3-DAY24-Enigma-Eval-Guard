@@ -34,6 +34,14 @@ def setup_presidio():
             Pattern("CMND 9 digits",  r"\b\d{9}\b",  0.7),
         ],
     )
+    phone_recognizer = PatternRecognizer(
+        supported_entity="VN_PHONE",
+        patterns=[Pattern("VN mobile", r"\b0[3-9]\d{8}\b", 0.9)],
+    )
+
+    registry = RecognizerRegistry()
+    registry.load_predefined_recognizers()
+    registry.add_recognizer(cccd_recognizer)
     registry.add_recognizer(phone_recognizer)
 
     analyzer  = AnalyzerEngine(registry=registry)
@@ -55,6 +63,8 @@ def pii_scan(text: str, analyzer=None, anonymizer=None) -> dict:
         analyzer, anonymizer = setup_presidio()
 
     results = analyzer.analyze(text=text, language=PRESIDIO_LANGUAGE)
+    valid_pii_types = {"VN_CCCD", "VN_PHONE", "EMAIL_ADDRESS", "PHONE_NUMBER"}
+    results = [r for r in results if r.entity_type in valid_pii_types]
     if not results:
         return {"has_pii": False, "entities": [], "anonymized": text}
 
@@ -78,7 +88,19 @@ def setup_nemo_rails():
     """
     from nemoguardrails import RailsConfig, LLMRails
     config = RailsConfig.from_path(GUARDRAILS_CONFIG_DIR)
-    rails  = LLMRails(config)
+    base_url = os.getenv("OPENAI_BASE_URL") or os.getenv("DEEPSEEK_BASE_URL")
+    api_key = os.getenv("OPENAI_API_KEY") or os.getenv("DEEPSEEK_API_KEY")
+    if base_url and api_key and ("deepseek" in base_url or "api.deepseek.com" in base_url):
+        from langchain_openai import ChatOpenAI
+        llm = ChatOpenAI(
+            model="deepseek-chat",
+            openai_api_base=base_url,
+            openai_api_key=api_key,
+            temperature=0,
+        )
+        rails = LLMRails(config, llm=llm)
+    else:
+        rails = LLMRails(config)
     return rails
 
 

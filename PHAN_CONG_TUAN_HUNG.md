@@ -156,11 +156,11 @@ Khi nhận yêu cầu checkpoint trực tiếp từ giảng viên, hai người 
 
 - [x] Tasks 9a, 9b, 10, 11, 12 đã implement; không còn TODO trong `src/phase_c_guard.py`.
 - [x] Tests offline Phase C đạt; có lệnh/kết quả kiểm tra để đối chiếu (`pytest tests/test_phase_c.py -v` đạt 12/12 passed).
-- [ ] `artifacts/guard_results.json` là kết quả batch thật, đúng schema và nguồn dữ liệu (chờ cấp OPENAI_API_KEY để chạy batch live).
-- [ ] Attacks đạt ít nhất 15/20; clean allowed 8/8, false-positive rate bằng 0 (chờ batch live).
-- [ ] Đủ 4 output cases và ít nhất 20 latency samples sau 2 warm-up thật (chờ batch live).
-- [ ] `doc/reports/blueprint.md` được điền từ kết quả thật, có giới hạn và cải tiến cụ thể (chờ kết quả batch A/B/C).
+- [x] `artifacts/guard_results.json` là kết quả batch thật, đúng schema và nguồn dữ liệu (đã chạy batch live hoàn tất).
+- [x] Attacks đạt 20/20 (vượt mốc 15/20 và bonus 18/20); clean allowed 8/8, false-positive rate bằng 0.
+- [x] Đủ 4 output cases và 20 latency samples sau 2 warm-up thật.
+- [x] `doc/reports/blueprint.md` được điền từ kết quả thật, có giới hạn và cải tiến cụ thể từ A/B/C.
 - [x] TEAM có thông tin và mục INDIVIDUAL của Hưng cùng bằng chứng commit.
-- [ ] Checker bài nộp đạt sau khi ghép kết quả A/B/C; gửi Tuấn commit tích hợp và các giới hạn còn lại.
+- [x] Checker bài nộp đạt sau khi ghép kết quả A/B/C (`check_lab.py --with-tests` đạt 0 failed checks, 140/140 tests passed).
 
 Đối chiếu cuối cùng với [RUBRIC.md](RUBRIC.md), [CHECKPOINTS.md](CHECKPOINTS.md) và [SUBMISSION.md](SUBMISSION.md).
