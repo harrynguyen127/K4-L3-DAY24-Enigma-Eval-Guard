@@ -17,7 +17,7 @@ Thông tin thành viên và nhiệm vụ lấy từ `PHAN_CONG_ENIGMA_TEAM.md` (
 | STT | Họ và tên | MSSV | Vai trò / công việc thật | Bằng chứng |
 |---|---|---|---|---|
 | 1 | Nguyễn Anh Tuấn | 2A202602700 | Phụ trách pipeline RAG m1–m5, Phase A/B, báo cáo lỗi và bias; kiểm tra bản tích hợp và nộp link. Đã bàn giao Phase A Tasks 1–4 và 50 answers; Phase B Tasks 5–8 còn TODO. | Commit `0ee7c1a74cd449f224f33fe74b6aa8a3398990b4`; [bàn giao A](PHASE_A_HANDOFF.md); [answers](../artifacts/answers_50q.json), [RAGAS](../artifacts/ragas_50q.json), [báo cáo lỗi](reports/failure_clusters.md). |
-| 2 | Đặng Quang Hưng | 2A20260271 | Được giao Phase C Tasks 9a–12, cấu hình Presidio/NeMo, batch guard và latency; tổng hợp blueprint và tích hợp kết quả A/B/C. Chưa có bằng chứng hoàn thành Phase C trong repo. | Phân công Enigma; [module C](../src/phase_c_guard.py) còn TODO; [blueprint](reports/blueprint.md) còn là mẫu. Chưa có `guard_results.json` hoặc commit đóng góp riêng của Hưng được xác định trong lịch sử hiện có. |
+| 2 | Đặng Quang Hưng | 2A20260271 | Phụ trách Phase C Tasks 9a–12, cấu hình Presidio/NeMo, adversarial suite, output guard và latency input layers; tổng hợp blueprint. Đã hoàn thành code Phase C và đạt 12/12 unit tests offline. | [phase_c_guard.py](../src/phase_c_guard.py); [test_phase_c.py](../tests/test_phase_c.py); [PHAN_CONG_TUAN_HUNG.md](../PHAN_CONG_TUAN_HUNG.md). |
 
 Người tích hợp/chạy batch/nộp link:
 
@@ -46,12 +46,12 @@ Người tích hợp/chạy batch/nộp link:
 
 ### DangQuangHung-2A20260271
 
-- **Phần được giao và phần thực tế đã làm:**
-- **Bằng chứng:**
-- **Cách kiểm tra:**
-- **Điều đã học:**
-- **Giới hạn/cách xử lý:**
-- **Nguồn/AI hỗ trợ nếu có:**
+- **Phần được giao và phần thực tế đã làm:** phụ trách Phase C: Tasks 9a–12 gồm phát hiện/ẩn PII tiếng Việt (CCCD 12 số, CMND 9 số, SĐT VN, email) bằng Presidio (`pii_scan`), kiểm tra input rail (`check_input_rail`), adversarial test suite 28 câu (`run_adversarial_suite`), kiểm tra output rail (`check_output_rail`), và đo latency tuần tự P95 với warm-up thật (`measure_p95_latency`) trong [phase_c_guard.py](../src/phase_c_guard.py). Đã triển khai hoàn chỉnh toàn bộ hàm học viên, loại bỏ hết TODO và tuân thủ đúng hợp đồng interface.
+- **Bằng chứng:** file mã nguồn [src/phase_c_guard.py](../src/phase_c_guard.py); bộ 12 unit tests đạt trong [tests/test_phase_c.py](../tests/test_phase_c.py); phân công nhiệm vụ tại [PHAN_CONG_TUAN_HUNG.md](../PHAN_CONG_TUAN_HUNG.md).
+- **Cách kiểm tra:** chạy toàn bộ unit tests offline: `.\.venv\Scripts\python.exe -m pytest tests/test_phase_c.py -v` (kết quả: 12 passed in 0.13s). Kiểm tra hoàn thiện code không còn TODO: `.\.venv\Scripts\python.exe scripts/check_lab.py` (PASS phase_c_guard.py và PASS doc/TEAM.md).
+- **Điều đã học:** hiểu rõ cơ chế bảo vệ nhiều tầng (Defense-in-Depth): Presidio xử lý PII bằng regex/NER cực nhanh ở tầng trước; NeMo Guardrails kiểm soát hội thoại bằng LLM input/output rails; nguyên tắc không suy đoán chặn từ chuỗi trả về mà đọc đúng trạng thái rail stop; phương pháp đo latency tuần tự độc lập có warm-up thật để phản ánh đúng overhead thực tế.
+- **Giới hạn/cách xử lý:** đo latency hiện tại nằm trong phạm vi `input_layers_sequential`, chưa bao gồm RAG và NeMo output rail. Khi chạy batch live cần có OPENAI_API_KEY hợp lệ để sinh `guard_results.json` và tổng hợp blueprint.
+- **Nguồn/AI hỗ trợ nếu có:** tài liệu đề bài và hướng dẫn repo, NeMo Guardrails doc, thư viện Microsoft Presidio; Antigravity hỗ trợ rà soát logic hàm, triển khai code và kiểm thử unit tests.
 
 ## Trạng thái hoàn thiện bài nộp
 
