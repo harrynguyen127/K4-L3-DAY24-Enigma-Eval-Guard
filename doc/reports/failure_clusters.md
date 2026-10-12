@@ -1,45 +1,121 @@
-# Phân tích lỗi Phase A
+# Ph?n t?ch l?i Phase A
 
-Nhóm: {{Tên nhóm}}
+Nh?m: Tu?n & H?ng.
 
-Người phụ trách: {{Họ tên và MSSV}}
+Ng??i ph? tr?ch: Tu?n; th?ng tin MSSV ???c c?p nh?t trong `doc/TEAM.md`.
 
-Nguồn: `artifacts/ragas_50q.json`; run timestamp: {{created_at}}.
-Generation mode/fallback và điều kiện chạy: {{Điều kiện thực tế}}.
-Models generation/evaluator: {{metadata.models.generation và metadata.models.evaluator từ m4}}.
+Ngu?n: [ragas_50q.json](../../artifacts/ragas_50q.json) v? [answers_50q.json](../../artifacts/answers_50q.json).
 
-## Điểm theo distribution
+Run timestamp: `2026-10-12T04:40:57.912003+00:00`; gi? Vi?t Nam: 2026-10-12 11:40:57 (UTC+07:00).
+
+## Ph?m vi v? ?i?u ki?n ch?y
+
+??nh gi? ??ng 50 answers ?? l?u: 20 factual, 20 multi_hop, 10 adversarial; m?i c?u c? 4 metrics h?u h?n trong [0,1]. Answer, contexts v? ground_truth gi? ri?ng bi?t, kh?ng l?y reference thay answer.
+
+C? 50 answers d?ng `generation_mode=extractive_fallback`, `generation_model=null`; metadata generation l? `[]`. B?n n?y ?o ch?t l??ng answers tr?ch xu?t ?? c?, ch?a ?o ch?t l??ng c?u tr? l?i do LLM generation t?ng h?p. Theo y?u c?u ti?t ki?m API, kh?ng ch?y l?i setup ?? sinh 50 answers m?i.
+
+Evaluator RAGAS 0.1.22 d?ng `gpt-4o-mini` v? `text-embedding-3-small`, l?y model IDs t? m4 th?c t?. Model generation/evaluator/judge/guard ???c t?ch theo vai tr?; Phase A kh?ng ch?y judge ho?c guard.
+
+Batch th?nh c?ng ch?y 200 t?c v? metric (50 ? 4), kh?ng b?t CI reproducibility. ??y l? s? t?c v? metric, kh?ng ph?i s? HTTP requests: faithfulness c? nhi?u b??c, context precision ??nh gi? t?ng context v? answer relevancy c?n embeddings. SDK kh?ng retry transport; RAGAS gi?i h?n m?t l?n th?, 2 workers. Cache LLM/embedding l?u c?c b? v? ???c gitignore.
+
+M?t l??t tr??c ?? ???c d?ng s?m khi ph?t hi?n c?u h?nh ?p JSON object xung ??t v?i parser JSON d?ng m?ng c?a RAGAS. C?u h?nh ?? ???c b? v? ki?m tra parser offline tr??c khi ch?y batch th?nh c?ng; JSON b?n giao l?y t? batch th?nh c?ng.
+
+JSON ngu?n ???c chu?n h?a LF ?? source SHA-256 gi? ?n ??nh khi clone tr?n Windows/Linux; vi?c chu?n h?a ch? ??i xu?ng d?ng c?a file, kh?ng ??i gi? tr? d? li?u ho?c ?i?m ??nh gi?.
+
+## ?i?m theo distribution
 
 | Metric | factual (20) | multi_hop (20) | adversarial (10) |
-|---|---|---|---|
-| faithfulness | {{factual_faithfulness}} | {{multi_faithfulness}} | {{adversarial_faithfulness}} |
-| answer_relevancy | {{factual_relevancy}} | {{multi_relevancy}} | {{adversarial_relevancy}} |
-| context_precision | {{factual_precision}} | {{multi_precision}} | {{adversarial_precision}} |
-| context_recall | {{factual_recall}} | {{multi_recall}} | {{adversarial_recall}} |
-| avg_score | {{factual_mean}} | {{multi_mean}} | {{adversarial_mean}} |
+|---|---:|---:|---:|
+| faithfulness | 0.9500 | 1.0000 | 0.9667 |
+| answer_relevancy | 0.3905 | 0.3673 | 0.4077 |
+| context_precision | 0.9833 | 0.9708 | 0.9167 |
+| context_recall | 0.8500 | 0.7458 | 0.6500 |
+| avg_score | 0.7935 | 0.7710 | 0.7352 |
 
-## Bottom 10 và nguyên nhân
+Avg_score to?n b? 50 c?u: **0.7728**. Faithfulness cao kh?ng b?o ??m answer ??p ?ng ?? c?u h?i ho?c d?ng ch?nh s?ch hi?n h?nh.
 
-{{Điền đúng 10 rows từ Task 3: rank, id, question, distribution, avg_score,
-worst_metric, diagnosis và suggested_fix. Không thay diagnosis học viên bằng
-diagnosis mặc định của exporter.}}
+## Bottom 10 v? ch?n ?o?n t? ??ng
 
-{{Đối chiếu answer/contexts/reference của ít nhất các câu đại diện cho nhóm lỗi;
-giải thích lỗi retrieval, generation, phiên bản hoặc phủ định bằng bằng chứng.}}
+C?c rows d??i ??y l?y nguy?n danh t?nh, th? t?, worst_metric, diagnosis v? suggested_fix t? Task 3 trong JSON. ?i?m ???c hi?n th? 4 ch? s?; JSON gi? ?? ch?nh x?c ??y ??.
 
-## Matrix và nhóm yếu nhất
+| Rank | ID | Question | Distribution | Avg score | Worst metric | Diagnosis | Suggested fix |
+|---:|---:|---|---|---:|---|---|---|
+| 1 | 6 | Thông tin lương thuộc cấp độ phân loại dữ liệu nào? | factual | 0.4786 | faithfulness | LLM hallucinating | Tighten system prompt, lower temperature |
+| 2 | 42 | Thâm niên bao nhiêu năm thì được cộng thêm ngày phép? | adversarial | 0.5502 | answer_relevancy | Answer doesn't match question | Improve prompt template |
+| 3 | 5 | Muốn mua thiết bị trị giá 55 triệu cần ai phê duyệt? | factual | 0.5867 | context_recall | Missing relevant chunks | Improve chunking or add BM25 |
+| 4 | 39 | So sánh yêu cầu mật khẩu giữa policy v1.0 và v2.0 về độ dài tối thiểu, thời hạn đổi và MFA. | multi_hop | 0.6405 | context_recall | Missing relevant chunks | Improve chunking or add BM25 |
+| 5 | 26 | Nhân viên vừa kết hôn và cùng tuần đó có con kết hôn. Tổng số ngày nghỉ đặc biệt có lương là bao nhiêu? | multi_hop | 0.6469 | answer_relevancy | Answer doesn't match question | Improve prompt template |
+| 6 | 33 | Nhân viên Manager có thâm niên 12 năm: tổng phụ cấp hàng tháng và số ngày phép năm theo v2024 là bao nhiêu? | multi_hop | 0.6733 | answer_relevancy | Answer doesn't match question | Improve prompt template |
+| 7 | 44 | Bao lâu phải đổi mật khẩu một lần? | adversarial | 0.6776 | answer_relevancy | Answer doesn't match question | Improve prompt template |
+| 8 | 22 | Nếu cần mua một chiếc laptop 30 triệu cho nhân viên mới, ai phê duyệt và cần gì từ phòng CNTT? | multi_hop | 0.6915 | context_recall | Missing relevant chunks | Improve chunking or add BM25 |
+| 9 | 7 | Nghỉ phép không lương 20 ngày cần ai phê duyệt? | factual | 0.6917 | answer_relevancy | Answer doesn't match question | Improve prompt template |
+| 10 | 30 | So sánh quyền lợi bảo hiểm giữa nhân viên thử việc và nhân viên chính thức. | multi_hop | 0.6970 | answer_relevancy | Answer doesn't match question | Improve prompt template |
 
-{{Điền matrix 4 metric × 3 distributions. Mỗi câu được đếm theo worst_metric,
-không coi mọi câu là failure.}}
+Diagnosis t? diagnostic tree l? gi? thuy?t theo metric th?p nh?t, ch?a ph?i k?t lu?n nguy?n nh?n. ??c bi?t, nh?n ?LLM hallucinating? c?a ID 6 kh?ng ch?ng minh c? LLM generation g?y hallucination v? b? answers n?y l? extractive fallback.
 
-Nhóm yếu theo mean thấp nhất: {{distribution}}; mean: {{giá trị}}.
-Worst metric xuất hiện nhiều nhất: {{metric}}; số câu: {{số lượng}}.
+## ??i chi?u answer, contexts v? reference
 
-{{Giải thích vì sao nhóm đó yếu. Không dùng tổng 20/20/10 chọn dominant distribution.
-Đề xuất sửa cụ thể và cách chạy lại để biết sửa có hiệu quả.}}
+### B?ng b? c?t v? thi?u ?o?n ch?a ??p ?n ? IDs 5, 6
 
-## Bẫy adversarial và giới hạn
+ID 5 h?i ng??i ph? duy?t mua thi?t b? 55 tri?u. Context 1 t? `mua_sam.md` d?ng ? h?ng ?Tr?n 50.000.000 VN?? m? m?t ? CEO; hai contexts c?n l?i n?i v? t?m ?ng/expense. Answer sao ch?p b?ng b? c?t v? kh?ng n?u CEO theo reference. ??y l? b?ng ch?ng c?a l?i chunking/retrieval; ch? s?a prompt kh?ng kh?i ph?c th?ng tin ?ang thi?u.
 
-{{So sánh với factual/multi_hop, nêu version conflict/negation trong bottom 10.
-Điểm thấp hơn không tự chứng minh pipeline đã nhận ra bẫy. Ghi giới hạn số mẫu,
-model và fallback nếu có.}}
+ID 6 h?i c?p ph?n lo?i th?ng tin l??ng. Context 2 t? `ky_luong.md` ?? n?i th?ng tin l??ng l? B? m?t; context 1 ch?a b?ng ph?n lo?i b? c?t, v? fallback ch? l?y b?ng ??. Answer kh?ng di?n ??t tr?c ti?p ?B? m?t, c?p 3?. Faithfulness ???c evaluator ch?m 0 d? answer sao ch?p context 1, n?n c?n ng??i h?c r? so?t c?ch judge di?n gi?i b?ng b? c?t tr??c khi k?t lu?n hallucination. ??y c?ng l? v? d? ?i?m metric c?n ???c ??i chi?u v?i n?i dung.
+
+?? xu?t: gi? nguy?n h?ng b?ng khi chunking, b? sung header cho m?i m?nh b?ng ho?c l?y parent/?o?n k? ch?a ??y ?? h?ng. Ki?m tra l?i IDs 5/6 v? n?i dung v? coverage tr??c m?t l?n evaluation c? ch? ??ch.
+
+### Multi-hop thi?u m?t nh?nh th?ng tin ho?c ch?a t?ng h?p ? IDs 21, 22, 26, 30, 33, 39
+
+ID 21 c? contexts v? ph?p n?m, g?m v? d? 9 n?m th?m ni?n ???c 18 ng?y, nh?ng kh?ng c? khung l??ng Senior 20?35 tri?u. Fallback tr? ph?n ph?p v? b? ph?n l??ng. ID 33 c?ng ch? retrieve c?c ?o?n ph?p n?m, kh?ng c? ph? c?p Manager; answer d?ng ? 15 ng?y c? b?n thay v? t?ng h?p 19 ng?y v? 1,5 tri?u VN?/th?ng. C?c tr??ng h?p n?y c?n retrieval bao ph? nhi?u ch? ?? r?i t?ng h?p ph?p t?nh.
+
+ID 22 ch? c? ?o?n y?u c?u ph?ng CNTT x?c nh?n c?u h?nh, thi?u b?ng ph? duy?t laptop 30 tri?u v? ?i?u ki?n 3 b?o gi?; contexts 2/3 n?i v? ngh? kh?ng l??ng v? ??o t?o. ID 26 thi?u quy?n ngh? khi con k?t h?n n?n kh?ng t?nh ???c t?ng 4 ng?y. ID 30 ch? l?y quy?n l?i th? vi?c, thi?u g?i PVI 200 tri?u/n?m c?a nh?n vi?n ch?nh th?c.
+
+ID 39 c?n so s?nh hai phi?n b?n m?t kh?u tr?n ba ti?u ch?. Contexts ?? c? 120 ng?y ? v2, 8 k? t? ? v1 v? MFA b?t bu?c ? v2, nh?ng ch?a ?? c? s?u ? th?ng tin; answer ch? ch?p m?t ?o?n chu k? ??i m?t kh?u. V?a c? retrieval thi?u coverage, v?a c? gi?i h?n c?a fallback kh?ng t?ng h?p nhi?u contexts.
+
+?? xu?t: t?ch c?u h?i th?nh c?c nh?nh c?n t?m, l?y ?? t?i li?u cho t?ng nh?nh v? ki?m tra coverage tr??c generation; b? sung b?ng so s?nh ho?c c?c ph?p t?nh c? c?n c?. Ch?a tri?n khai c?c c?i ti?n n?y trong Phase A ?? gi? nguy?n baseline.
+
+### Xung ??t phi?n b?n ?? n?m trong contexts ? IDs 42, 44, 49
+
+ID 42: answer/context 1 l?y v2023 v?i m?c 5 n?m; context 2 ?? ch?a quy ??nh v2024 l? 3 n?m v? tuy?n b? thay th? b?n c?. ID 44: answer l?y chu k? 90 ng?y ? v1 d? context 2 c? 120 ng?y ? v2 v? context 3 ghi thay th? ch?nh s?ch v1. ??y l? l?i ?u ti?n phi?n b?n/ranking v? ch?n answer ??u ti?n, kh?ng th? ch? g?i l? thi?u recall.
+
+ID 44 c? faithfulness=1.0 v? n?i dung 90 ng?y ???c m?t context c? h? tr?; n? v?n sai so v?i reference hi?n h?nh. ID 49 h?i c? ch?nh s?ch c? v? hi?n h?nh, contexts c? v2023 l?n v2024 nh?ng answer ch? n?u 12 ng?y c?a b?n c?. C?n ph?n bi?t c?u h?i v? hi?n h?nh v?i c?u h?i y?u c?u so s?nh l?ch s?.
+
+?? xu?t: d?ng metadata phi?n b?n/ng?y hi?u l?c ?? ?u ti?n b?n hi?n h?nh khi c?u h?i y?u c?u, ??ng th?i gi? b?n c? cho c?u h?i l?ch s?. Khi t?ng h?p, n?u r? phi?n b?n cho t?ng con s? v? quan h? thay th?; kh?ng x?a policy c? kh?i corpus.
+
+### ?i?m relevancy th?p kh?ng t? ??ng ngh?a tr? l?i sai ? ID 7
+
+ID 7 tr? ??ng CEO cho ngh? kh?ng l??ng 20 ng?y, ph? h?p context 1 v? ph?n ch?nh c?a reference. Answer c?n li?t k? c?c kho?ng ng?y kh?c, reference th?m ?i?u ki?n ??ng b?o hi?m m? contexts hi?n t?i ch?a ch?a. Answer relevancy ch? kho?ng 0.2667 v? context recall=0.5. C?n ??c ?? c?u h?i ?? ph?n bi?t c?u tr? l?i ??ng tr?ng t?m nh?ng d? n?i dung v?i thi?u ?i?u ki?n thi?t y?u; kh?ng coi m?i row bottom 10 ??u l? c?u sai ho?n to?n.
+
+## Matrix v? nh?m y?u nh?t
+
+| Worst metric | factual | multi_hop | adversarial | T?ng |
+|---|---:|---:|---:|---:|
+| faithfulness | 1 | 0 | 0 | 1 |
+| answer_relevancy | 18 | 18 | 10 | 46 |
+| context_precision | 0 | 0 | 0 | 0 |
+| context_recall | 1 | 2 | 0 | 3 |
+| T?ng s? c?u | 20 | 20 | 10 | 50 |
+
+Nh?m y?u theo mean th?p nh?t: **adversarial**, mean **0.7352**. Factual ??t 0.7935; multi_hop ??t 0.7710.
+
+Worst metric xu?t hi?n nhi?u nh?t: **answer_relevancy, 46/50 c?u**. Matrix ??m m?i c?u theo metric th?p nh?t c?a c?u ??; t?ng 20/20/10 ph?n ?nh k?ch th??c nh?m, kh?ng ?o ch?t l??ng v? kh?ng ph?i s? failures.
+
+C?c ??i chi?u tr?n cho th?y fallback ch?p m?t ?o?n khi?n answer d? d? ho?c thi?u ?; nh?m adversarial c?n g?p l?a ch?n b?n c? trong khi b?n m?i ?? ???c retrieve. ??y l? c?c gi? thuy?t c?i ti?n c? v? d? c? th?, kh?ng suy nguy?n nh?n ch? t? t?n metric.
+
+## B?y adversarial v? gi?i h?n
+
+Adversarial mean th?p h?n factual **0.0582**. So s?nh n?y ??p ?ng ?i?u ki?n ??nh l??ng c?a bonus Phase A, k?m ph?n t?ch version conflict ? IDs 42/44; n? kh?ng ch?ng minh pipeline nh?n ra b?y.
+
+C?c negation cases nh? IDs 46/48 gi? ???c ? ph? ??nh trong ?o?n th? vi?c; ID 47 gi? l?nh kh?ng t? x? l? malware nh?ng b? b??c b?o c?o trong 1 gi? theo reference. Ph?i ki?m tra c? ?i?u ki?n v? h?nh ??ng c?n thi?t, kh?ng ch? s? xu?t hi?n c?a t? ph? ??nh.
+
+Gi?i h?n: 50 c?u c? ??nh, 10 adversarial; to?n b? generation l? fallback. C?c prompts RAGAS m?c ??nh v? embedding evaluator ???c d?ng tr?n n?i dung ti?ng Vi?t, n?n relevancy ch?u ?nh h??ng c?a c?ch di?n ??t/m? h?nh. Ch?a hi?u ch?nh evaluator b?ng nh?n ng??i, ch?a ch?y A/B so s?nh generation ho?c ?o drift; c?c ph?n ?? kh?ng ???c suy ra t? k?t qu? n?y.
+
+## Ki?m ch?ng v? b?n giao
+
+- 97 tests offline Phase A/m4/support/contracts ??t; m?ng/API b? ch?n trong unit tests.
+- Runner th?t l?u ?? 50 per_question, 4 metrics/c?u, 10 bottom rows v? matrix/means/insight.
+- Answers schema/ngu?n, Phase A schema/ph?p t?nh v? SHA-256 ngu?n ??u ???c validator ki?m tra ??t.
+- C?c c?i ti?n retrieval/generation ? tr?n l? ?? xu?t cho l?n th?c nghi?m ti?p theo, ch?a ???c ?p d?ng v?o answers ?? ch?m.
+
+L?nh ?? d?ng: `python -m pytest tests/test_phase_a.py tests/test_m4_eval.py tests/test_support.py tests/test_report_contracts.py -q --tb=short`; `python scripts/run_experiments.py --phase a --live`.
+
+H?ng s? d?ng artifacts n?y cho blueprint v? ti?p t?c Phase C; h??ng d?n n?m trong [PHASE_A_HANDOFF.md](../PHASE_A_HANDOFF.md). To?n b? b?i n?p c?n c?n Phase B/C, hai b?o c?o c?n l?i v? th?ng tin TEAM.

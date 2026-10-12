@@ -84,6 +84,18 @@ def test_valid_answers_and_reports(answers, phase_a_data, phase_b_data):
     validate_metadata(phase_a_data[0], [phase_a_data[-1], TEST_SET_PATH])
 
 
+def test_source_hash_survives_git_lf_checkout_on_another_machine(tmp_path):
+    source = tmp_path / "workspace" / "answers_50q.json"
+    write_json(source, [{"answer": "A saved answer", "contexts": ["Line one\nLine two"]}])
+    report = {"metadata": metadata([source], models={
+        "generation": [], "evaluator": ["eval-test"], "judge": [], "guard": []})}
+    checkout = tmp_path / "clone" / source.name
+    checkout.parent.mkdir()
+    # Git stores/checks out these JSON files as LF via .gitattributes.
+    checkout.write_bytes(source.read_bytes().replace(b"\r\n", b"\n"))
+    validate_metadata(report, [checkout])
+
+
 @pytest.mark.parametrize("field,value", [
     ("generation_mode", None), ("generation_mode", "pretend"), ("generation_mode", True),
     ("generation_model", None), ("generation_model", 123), ("generation_model", "   ")])

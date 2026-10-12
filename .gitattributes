@@ -1,0 +1,3 @@
+# Keep JSON source hashes stable when evidence is cloned on Windows or Linux.
+fixtures/*.json text eol=lf
+artifacts/*.json text eol=lf
